@@ -1,5 +1,5 @@
 use reqwest::Client;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -75,6 +75,29 @@ struct TargetConfig {
 struct ToolCall {
     tool: String,
     target: String,
+}
+
+// ── Structured output for frontend API ──
+
+#[derive(Serialize, Debug)]
+struct ScanOutput {
+    status: String,
+    vulnerabilities: Vec<VulnOutput>,
+    report_markdown: String,
+}
+
+#[derive(Serialize, Debug)]
+struct VulnOutput {
+    file: String,
+    line: u32,
+    #[serde(rename = "type")]
+    vuln_type: String,
+    severity: String,
+    description: String,
+    #[serde(rename = "codeSnippet")]
+    code_snippet: String,
+    #[serde(rename = "fixSnippet")]
+    fix_snippet: String,
 }
 
 fn load_shield_config() -> Option<ShieldConfig> {
@@ -523,4 +546,80 @@ async fn main() {
     let report = generate_report(&attack_trace, &codebase, exploit_found).await;
     fs::write("SHIELD_REPORT.md", &report).expect("Unable to write report");
     println!("\n--- FINAL REPORT ---\n{}\n✅ Saved to SHIELD_REPORT.md", report);
+
+    // ── Write structured JSON output for frontend API ──
+    let vulnerabilities = parse_vulns_from_trace(&attack_trace);
+    let scan_output = ScanOutput {
+        status: if exploit_found { "Issues Found".into() } else { "Clean".into() },
+        vulnerabilities,
+        report_markdown: report,
+    };
+    let json_output = serde_json::to_string_pretty(&scan_output).unwrap_or_default();
+    fs::write("shield_results.json", &json_output).expect("Unable to write results JSON");
+    println!("✅ Saved structured results to shield_results.json");
+}
+
+/// Extract vulnerability entries from the attack trace.
+fn parse_vulns_from_trace(trace: &str) -> Vec<VulnOutput> {
+    let mut vulns = Vec::new();
+    let sections: Vec<&str> = trace.split("\n## ").collect();
+
+    for section in sections {
+        let lower = section.to_lowercase();
+        let is_vuln = lower.contains("vulnerable") || lower.contains("payload");
+        if !is_vuln {
+            continue;
+        }
+
+        // Extract the test name from the first line
+        let first_line = section.lines().next().unwrap_or("");
+
+        // Determine vulnerability type from the test name
+        let vuln_type = if lower.contains("sqli") || lower.contains("sql injection") || lower.contains("sqlmap") {
+            "SQL Injection"
+        } else if lower.contains("xss") {
+            "XSS"
+        } else if lower.contains("header") {
+            "Missing Security Headers"
+        } else if lower.contains("nikto") {
+            "Web Server Vulnerability"
+        } else if lower.contains("gobuster") || lower.contains("discovery") {
+            "Exposed Path"
+        } else if lower.contains("nmap") || lower.contains("port") {
+            "Open Port"
+        } else {
+            "Security Issue"
+        };
+
+        // Determine severity
+        let severity = if lower.contains("sql injection") || lower.contains("sqlmap") || lower.contains("sqli") {
+            "Critical"
+        } else if lower.contains("xss") || lower.contains("auth") {
+            "High"
+        } else if lower.contains("header") || lower.contains("nikto") {
+            "Medium"
+        } else {
+            "Low"
+        };
+
+        // Extract target URL for file reference
+        let file = section.lines()
+            .find(|l| l.contains("Target:"))
+            .map(|l| l.split("Target:").last().unwrap_or("").trim().to_string())
+            .unwrap_or_default();
+
+        let description = first_line.trim().to_string();
+
+        vulns.push(VulnOutput {
+            file,
+            line: 0,
+            vuln_type: vuln_type.into(),
+            severity: severity.into(),
+            description,
+            code_snippet: String::new(),
+            fix_snippet: String::new(),
+        });
+    }
+
+    vulns
 }
