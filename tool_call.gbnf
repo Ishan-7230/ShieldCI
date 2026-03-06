@@ -1,0 +1,9 @@
+# tool_call.gbnf
+# 1. The root must be a JSON object containing EXACTLY "tool" and "target"
+root ::= "{" ws "\"tool\"" ws ":" ws string "," ws "\"target\"" ws ":" ws string "}"
+
+# 2. Define optional whitespace
+ws ::= [ \t\n]*
+
+# 3. Define what a string is (anything inside quotes)
+string ::= "\"" [^"]* "\""
