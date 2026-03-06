@@ -2,6 +2,18 @@
 
 AI-powered automated penetration testing for your CI pipeline. ShieldCI scans your application for security vulnerabilities using offensive security tools orchestrated by a local LLM.
 
+## Why Local-First?
+
+ShieldCI runs **entirely on your machine** — the engine, the LLM, and all security tooling. This is a deliberate design choice:
+
+- **Your code never leaves your network.** No source code is uploaded to any third-party server. The LLM (Ollama) runs locally, scans happen inside a local Docker container, and results stay on disk.
+- **Zero data leakage risk.** Unlike cloud-based security scanners, there is no API that receives your codebase. This matters for proprietary, enterprise, and pre-release code.
+- **Full control.** You choose the model, the tools, and the scan depth. Nothing phones home.
+
+> **Future: Hosted option for open-source repos**
+>
+> We plan to offer an optional hosted version of ShieldCI for projects that don't need code confidentiality (e.g. open-source repositories). This will let maintainers run scans without setting up a self-hosted runner. The local-first mode will always remain the default and recommended path for private codebases.
+
 ## Architecture
 
 ```
@@ -160,7 +172,9 @@ ShieldCI runs a dynamic multi-phase test plan:
 
 ## Output
 
-ShieldCI generates a `SHIELD_REPORT.md` in the target repo with:
+ShieldCI generates `SHIELD_REPORT.md` (human-readable) and `shield_results.json` (structured, for dashboard ingestion) in the target repo.
+
+`SHIELD_REPORT.md` contains:
 
 - **Executive summary** of findings
 - **Scan results** per tool with severity ratings
@@ -178,6 +192,20 @@ cd tests
 cat SHIELD_REPORT.md
 ```
 
+## Dashboard Integration
+
+ShieldCI can push scan results to the [Shield-CI dashboard](https://github.com/Zenith1415/Shield-CI) (Next.js frontend):
+
+```bash
+# After a scan, push results to your local dashboard
+SHIELDCI_API_URL=http://localhost:3000 \
+SHIELDCI_API_KEY=your-secret-key \
+SHIELDCI_REPO=owner/repo \
+python3 push_results.py
+```
+
+For CI, this is handled automatically by the GitHub Actions workflow using a **self-hosted runner** — keeping everything local.
+
 ## Project Structure
 
 ```
@@ -185,6 +213,9 @@ cat SHIELD_REPORT.md
 ├── kali_mcp.py          # Python MCP tool server (runs inside Docker)
 ├── Dockerfile           # Kali Linux container with security tools
 ├── Cargo.toml           # Rust dependencies
+├── push_results.py      # Push structured results to dashboard API
+├── .github/workflows/
+│   └── shieldci.yml     # GitHub Actions workflow (self-hosted runner)
 ├── run.sh               # Auto-detection fallback script
 ├── detector.sh          # Full repo profiler
 └── tests/
