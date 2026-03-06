@@ -1,0 +1,6 @@
+target/
+.git/
+tests/
+*.md
+SHIELD_REPORT.md
+temp_prompt.txt

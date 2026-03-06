@@ -1,0 +1,45 @@
+# ── Stage 1: Build the Rust binary ──────────────────────────
+FROM rust:1.77-bookworm AS builder
+
+WORKDIR /build
+COPY Cargo.toml Cargo.lock ./
+COPY src/ src/
+
+RUN cargo build --release
+
+# ── Stage 2: Runtime image ──────────────────────────────────
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    python3 \
+    python3-pip \
+    docker.io \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy the compiled engine binary
+COPY --from=builder /build/target/release/shield-ci /app/shield-ci
+
+# Copy support files
+COPY push_results.py /app/push_results.py
+COPY kali_mcp.py /app/kali_mcp.py
+COPY Dockerfile /app/Dockerfile.kali
+COPY entrypoint.sh /app/entrypoint.sh
+COPY run.sh /app/run.sh
+COPY detector.sh /app/detector.sh
+COPY tool_call.gbnf /app/tool_call.gbnf
+
+# Create tests directory
+RUN mkdir -p /app/tests
+
+# Environment variables (override at runtime)
+ENV OLLAMA_HOST=http://host.docker.internal:11434
+ENV SHIELDCI_API_URL=http://host.docker.internal:3000
+ENV SHIELDCI_API_KEY=
+ENV SHIELDCI_RESULTS_FILE=/app/tests/shield_results.json
+
+VOLUME ["/app/tests"]
+
+ENTRYPOINT ["/app/shield-ci"]
